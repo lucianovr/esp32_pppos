@@ -18,8 +18,12 @@
 #include "sim800.h"
 #include "bg96.h"
 #include "sim7600.h"
+#include "exs82w.h"
 
-#define BROKER_URL "mqtt://mqtt.eclipse.org"
+//#define BROKER_URL "mqtt://mqtt.eclipse.org"
+#define MQTT_BROKER_URL 	"mqtt://broker.hivemq.com"
+#define MQTT_QOS			(1)
+#define MQTT_RETAIN			(0)
 
 static const char *TAG = "pppos_example";
 static EventGroupHandle_t event_group = NULL;
@@ -59,7 +63,7 @@ static esp_err_t example_handle_cmgs(modem_dce_t *dce, const char *line)
 
 #define MODEM_SMS_MAX_LENGTH (128)
 #define MODEM_COMMAND_TIMEOUT_SMS_MS (120000)
-#define MODEM_PROMPT_TIMEOUT_MS (10)
+#define MODEM_PROMPT_TIMEOUT_MS (2000)
 
 static esp_err_t example_send_message_text(modem_dce_t *dce, const char *phone_num, const char *text)
 {
@@ -134,16 +138,13 @@ static esp_err_t mqtt_event_handler(esp_mqtt_event_handle_t event)
     switch (event->event_id) {
     case MQTT_EVENT_CONNECTED:
         ESP_LOGI(TAG, "MQTT_EVENT_CONNECTED");
-        msg_id = esp_mqtt_client_subscribe(client, "/topic/esp-pppos", 0);
-        ESP_LOGI(TAG, "sent subscribe successful, msg_id=%d", msg_id);
+        xEventGroupSetBits(event_group, GOT_DATA_BIT);
         break;
     case MQTT_EVENT_DISCONNECTED:
         ESP_LOGI(TAG, "MQTT_EVENT_DISCONNECTED");
         break;
     case MQTT_EVENT_SUBSCRIBED:
         ESP_LOGI(TAG, "MQTT_EVENT_SUBSCRIBED, msg_id=%d", event->msg_id);
-        msg_id = esp_mqtt_client_publish(client, "/topic/esp-pppos", "esp32-pppos", 0, 0, 0);
-        ESP_LOGI(TAG, "sent publish successful, msg_id=%d", msg_id);
         break;
     case MQTT_EVENT_UNSUBSCRIBED:
         ESP_LOGI(TAG, "MQTT_EVENT_UNSUBSCRIBED, msg_id=%d", event->msg_id);
@@ -155,7 +156,6 @@ static esp_err_t mqtt_event_handler(esp_mqtt_event_handle_t event)
         ESP_LOGI(TAG, "MQTT_EVENT_DATA");
         printf("TOPIC=%.*s\r\n", event->topic_len, event->topic);
         printf("DATA=%.*s\r\n", event->data_len, event->data);
-        xEventGroupSetBits(event_group, GOT_DATA_BIT);
         break;
     case MQTT_EVENT_ERROR:
         ESP_LOGI(TAG, "MQTT_EVENT_ERROR");
@@ -264,25 +264,31 @@ void app_main(void)
         dce = bg96_init(dte);
 #elif CONFIG_EXAMPLE_MODEM_DEVICE_SIM7600
         dce = sim7600_init(dte);
+#elif CONFIG_EXAMPLE_MODEM_DEVICE_EXS82W
+        dce = exs82w_init(dte);
 #else
 #error "Unsupported DCE"
 #endif
         assert(dce != NULL);
-        ESP_ERROR_CHECK(dce->set_flow_ctrl(dce, MODEM_FLOW_CONTROL_NONE));
-        ESP_ERROR_CHECK(dce->store_profile(dce));
-        /* Print Module ID, Operator, IMEI, IMSI */
+//        ESP_ERROR_CHECK(dce->set_flow_ctrl(dce, MODEM_FLOW_CONTROL_NONE));
+//        ESP_ERROR_CHECK(dce->store_profile(dce));
+
+        /* Print Module ID, Operator, RAT, IMEI, IMSI */
         ESP_LOGI(TAG, "Module: %s", dce->name);
-        ESP_LOGI(TAG, "Operator: %s", dce->oper);
+        ESP_LOGI(TAG, "Operator: %s, RAT: %d", dce->oper, dce->act);
         ESP_LOGI(TAG, "IMEI: %s", dce->imei);
         ESP_LOGI(TAG, "IMSI: %s", dce->imsi);
+
         /* Get signal quality */
         uint32_t rssi = 0, ber = 0;
         ESP_ERROR_CHECK(dce->get_signal_quality(dce, &rssi, &ber));
         ESP_LOGI(TAG, "rssi: %d, ber: %d", rssi, ber);
+
         /* Get battery voltage */
-        uint32_t voltage = 0, bcs = 0, bcl = 0;
-        ESP_ERROR_CHECK(dce->get_battery_status(dce, &bcs, &bcl, &voltage));
-        ESP_LOGI(TAG, "Battery voltage: %d mV", voltage);
+//        uint32_t voltage = 0, bcs = 0, bcl = 0;
+//        ESP_ERROR_CHECK(dce->get_battery_status(dce, &bcs, &bcl, &voltage));
+//        ESP_LOGI(TAG, "Battery voltage: %d mV", voltage);
+
         /* setup PPPoS network parameters */
 #if !defined(CONFIG_EXAMPLE_MODEM_PPP_AUTH_NONE) && (defined(CONFIG_LWIP_PPP_PAP_SUPPORT) || defined(CONFIG_LWIP_PPP_CHAP_SUPPORT))
         esp_netif_ppp_set_auth(esp_netif, auth_type, CONFIG_EXAMPLE_MODEM_PPP_AUTH_USERNAME, CONFIG_EXAMPLE_MODEM_PPP_AUTH_PASSWORD);
@@ -294,23 +300,48 @@ void app_main(void)
 
         /* Config MQTT */
         esp_mqtt_client_config_t mqtt_config = {
-            .uri = BROKER_URL,
+            .uri = MQTT_BROKER_URL,
             .event_handle = mqtt_event_handler,
         };
         esp_mqtt_client_handle_t mqtt_client = esp_mqtt_client_init(&mqtt_config);
         esp_mqtt_client_start(mqtt_client);
         xEventGroupWaitBits(event_group, GOT_DATA_BIT, pdTRUE, pdTRUE, portMAX_DELAY);
+
+        int msg_id;
+        msg_id = esp_mqtt_client_subscribe(mqtt_client, "/topic/esp-pppos", MQTT_QOS);
+        ESP_LOGI(TAG, "sent subscribe successful, msg_id=%d", msg_id);
+
+        for( int i = 0; i < 50; i++ ) {
+
+        	char msg_buff[50];
+        	memset( msg_buff, 0x00, sizeof( msg_buff) );
+        	int msg_len = snprintf(msg_buff, sizeof(msg_buff), "esp32-pppos_%d", i);
+
+        	msg_id = esp_mqtt_client_publish(mqtt_client, "/topic/esp-pppos", msg_buff, msg_len, MQTT_QOS, MQTT_RETAIN);
+        	if( msg_id == -1 )
+        	{
+        		vTaskDelay(pdMS_TO_TICKS(5000));
+        		continue;
+        	}
+
+        	ESP_LOGI(TAG, "sent publish successful, msg_cnt=%d, msg_id=%d", i, msg_id);
+        	vTaskDelay(pdMS_TO_TICKS(100));
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(15000));
+
         esp_mqtt_client_destroy(mqtt_client);
 
         /* Exit PPP mode */
         ESP_ERROR_CHECK(esp_modem_stop_ppp(dte));
-
         xEventGroupWaitBits(event_group, STOP_BIT, pdTRUE, pdTRUE, portMAX_DELAY);
+
 #if CONFIG_EXAMPLE_SEND_MSG
         const char *message = "Welcome to ESP32!";
         ESP_ERROR_CHECK(example_send_message_text(dce, CONFIG_EXAMPLE_SEND_MSG_PEER_PHONE_NUMBER, message));
         ESP_LOGI(TAG, "Send send message [%s] ok", message);
 #endif
+
         /* Power down module */
         ESP_ERROR_CHECK(dce->power_down(dce));
         ESP_LOGI(TAG, "Power down");

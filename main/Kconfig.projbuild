@@ -2,7 +2,7 @@ menu "Example Configuration"
 
     choice EXAMPLE_MODEM_DEVICE
         prompt "Choose supported modem device (DCE)"
-        default EXAMPLE_MODEM_DEVICE_BG96
+        default EXAMPLE_MODEM_DEVICE_EXS82W
         help
             Select modem device connected to the ESP DTE.
         config EXAMPLE_MODEM_DEVICE_SIM800
@@ -18,6 +18,10 @@ menu "Example Configuration"
             bool "SIM7600"
             help
                 SIM7600 is Multi-Band LTE-TDD/LTE-FDD/HSPA+ and GSM/GPRS/EDGE module
+       config EXAMPLE_MODEM_DEVICE_EXS82W
+            bool "EXS82W"
+            help
+                Thales EXS82W is a series of LTE Cat M1/Cat NB1/EGPRS module.
     endchoice
 
     config EXAMPLE_MODEM_PPP_AUTH_USERNAME

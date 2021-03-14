@@ -4,7 +4,9 @@ set(srcs "src/esp_modem.c"
         "src/esp_modem_compat.c"
         "src/sim800.c"
         "src/sim7600.c"
-        "src/bg96.c")
+        "src/bg96.c"
+        "src/exs82w.c"
+        )
 
 idf_component_register(SRCS "${srcs}"
                     INCLUDE_DIRS include
