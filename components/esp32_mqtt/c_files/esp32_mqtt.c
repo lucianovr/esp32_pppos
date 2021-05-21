@@ -10,11 +10,11 @@
 
 // PRIVATE DATA TYPES
 
-
 // PRIVATE VARIABLES
 static esp_mqtt_client_handle_t mqtt_client_hdl = NULL;
 static mqtt_connected_cb my_mqtt_connected = NULL;
 static mqtt_disconnected_cb my_mqtt_disconnected = NULL;
+static bool is_connected = false;
 
 // PRIVATE FUNCTIONS
 static esp_err_t mqtt_event_handler(esp_mqtt_event_handle_t event);
@@ -49,10 +49,16 @@ bool mqtt_connect(char* url, uint16_t port, char* user, char* password)
 
 bool mqtt_disconnect( void )
 {
-    esp_mqtt_client_disconnect(mqtt_client_hdl);
-    mqtt_client_hdl = NULL;
-
+    if( is_connected ){
+        esp_mqtt_client_disconnect(mqtt_client_hdl);
+        mqtt_client_hdl = NULL;
+    }
     return true;
+}
+
+bool mqtt_is_connected( void )
+{
+    return is_connected;
 }
 
 bool mqtt_publish(char* topic, uint8_t qos, uint8_t* data, size_t len)
@@ -85,15 +91,16 @@ void mqtt_reg_disconnected_cb( mqtt_disconnected_cb cb )
 static esp_err_t mqtt_event_handler(esp_mqtt_event_handle_t event)
 {
     esp_mqtt_client_handle_t client = event->client;
-    int msg_id;
     switch (event->event_id) {
     case MQTT_EVENT_CONNECTED:
         ESP_LOGI(TAG, "MQTT_EVENT_CONNECTED");
+        is_connected = true;
         if( my_mqtt_connected != NULL )
             my_mqtt_connected();
         break;
     case MQTT_EVENT_DISCONNECTED:
         ESP_LOGI(TAG, "MQTT_EVENT_DISCONNECTED");
+        is_connected = false;
         if( my_mqtt_disconnected != NULL )
             my_mqtt_disconnected();
         break;
@@ -109,10 +116,13 @@ static esp_err_t mqtt_event_handler(esp_mqtt_event_handle_t event)
     case MQTT_EVENT_DATA:
         ESP_LOGI(TAG, "MQTT_EVENT_DATA");
         printf("TOPIC=%.*s\r\n", event->topic_len, event->topic);
-        printf("DATA=%.*s\r\n", event->data_len, event->data);
+        ESP_LOG_BUFFER_HEXDUMP(TAG, event->data, event->data_len, ESP_LOG_INFO);
         break;
     case MQTT_EVENT_ERROR:
-        ESP_LOGI(TAG, "MQTT_EVENT_ERROR");
+        ESP_LOGE(TAG, "MQTT_EVENT_ERROR, reason = %d", event->error_handle->error_type);
+        if(event->error_handle->error_type == MQTT_ERROR_TYPE_CONNECTION_REFUSED){
+            ESP_LOGE(TAG, "MQTT Connect error = %d", event->error_handle->connect_return_code);
+        }
         break;
     default:
         ESP_LOGI(TAG, "MQTT other event id: %d", event->event_id);

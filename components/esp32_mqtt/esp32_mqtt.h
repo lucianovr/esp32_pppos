@@ -12,6 +12,7 @@ typedef void(*mqtt_disconnected_cb)(void);
 bool mqtt_init(void);
 bool mqtt_connect(char* url, uint16_t port, char* user, char* password);
 bool mqtt_disconnect( void );
+bool mqtt_is_connected( void );
 bool mqtt_publish(char* topic, uint8_t qos, uint8_t* data, size_t len);
 bool mqtt_subscribe(char* topic, uint8_t qos, mqtt_rxdatacb_t cb);
 

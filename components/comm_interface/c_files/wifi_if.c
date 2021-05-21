@@ -22,7 +22,6 @@
 
 // PRIVATE VARIABLES
 static esp_netif_t *s_example_esp_netif = NULL;
-static esp_netif_t *esp_netif = NULL;
 static esp_ip4_addr_t s_ip_addr;
 
 static comm_if_connected_cb_t connected_cb = NULL;
